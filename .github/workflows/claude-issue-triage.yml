@@ -1,0 +1,132 @@
+name: Claude Issue Triage
+
+on:
+  issues:
+    types: [opened, edited]
+
+jobs:
+  triage:
+    # Evitar bucles: no actuar si el evento lo disparó el propio bot de Actions
+    if: github.actor != 'github-actions[bot]'
+
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write   # necesario para añadir labels y publicar comentarios
+      id-token: write # requerido por claude-code-action (OIDC)
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      # Garantizar que el conjunto predefinido de labels existe en el repo.
+      # "gh label create ... || true" es idempotente: no falla si el label ya existe.
+      - name: Ensure predefined labels exist
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create "bug"            --color "d73a4a" --description "Algo no funciona correctamente"            || true
+          gh label create "enhancement"    --color "a2eeef" --description "Nueva funcionalidad o mejora"              || true
+          gh label create "question"       --color "d876e3" --description "Se requiere más información o aclaración"  || true
+          gh label create "documentation"  --color "0075ca" --description "Mejoras o correcciones en la documentación" || true
+          gh label create "duplicate"      --color "cfd3d7" --description "Este issue ya existe"                      || true
+          gh label create "invalid"        --color "e4e669" --description "No corresponde a un problema real"         || true
+          gh label create "good first issue" --color "7057ff" --description "Bueno para nuevos colaboradores"         || true
+          gh label create "needs-info"     --color "e4e669" --description "Se necesita más información del autor"     || true
+          gh label create "priority: high"   --color "b60205" --description "Alta prioridad"                          || true
+          gh label create "priority: medium" --color "fbca04" --description "Prioridad media"                         || true
+          gh label create "priority: low"    --color "0e8a16" --description "Baja prioridad"                          || true
+
+      - name: Run Claude Issue Triage
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+
+          # Restringir las herramientas de Bash solo a las operaciones necesarias
+          claude_args: >-
+            --allowed-tools
+            "Bash(gh issue view *),Bash(gh issue edit *),Bash(gh issue comment *),Bash(gh label list *),Read,Grep,Glob"
+
+          prompt: |
+            Eres un asistente de triaje de issues para un repositorio de Tetris en JavaScript.
+            Tu tarea es analizar el issue #${{ github.event.issue.number }} y realizar DOS acciones:
+            1. Asignar labels apropiados del conjunto predefinido.
+            2. Publicar un comentario de diagnóstico en español.
+
+            ## Contexto del proyecto
+            Este es un juego de Tetris de página única, sin dependencias, en JavaScript vanilla.
+            Los archivos principales son:
+            - `index.html` — dos canvas (#board 300×600, #next-canvas 120×120) y un HUD.
+            - `style.css` — tema oscuro retro; la única clase funcional es `.hidden`.
+            - `game.js` — toda la lógica del juego (~305 líneas). Funciones clave:
+              `collide()`, `tryRotate()`, `clearLines()`, `lockPiece()`, `merge()`,
+              `spawn()`, `ghostY()`, `draw()`, `loop()`, `init()`.
+
+            ## Pasos a seguir
+
+            ### Paso 1 — Leer el issue
+            Ejecuta:
+            ```
+            gh issue view ${{ github.event.issue.number }} --json number,title,body,labels
+            ```
+
+            ### Paso 2 — Asignar labels
+            Elige entre los siguientes labels (solo estos, no crees nuevos):
+            - `bug` — algo no funciona correctamente
+            - `enhancement` — nueva funcionalidad o mejora
+            - `question` — se requiere aclaración
+            - `documentation` — cambios en documentación
+            - `duplicate` — el issue ya existe
+            - `invalid` — no corresponde a un problema real
+            - `good first issue` — apto para nuevos colaboradores
+            - `needs-info` — falta información del autor
+            - `priority: high` — urgente o bloqueante
+            - `priority: medium` — importante pero no urgente
+            - `priority: low` — mejora menor o cosmética
+
+            Añade los labels con:
+            ```
+            gh issue edit ${{ github.event.issue.number }} --add-label "LABEL1,LABEL2"
+            ```
+            Asigna siempre al menos un label de tipo (bug/enhancement/question/documentation/duplicate/invalid)
+            y uno de prioridad (priority: high/medium/low), salvo que el issue sea `duplicate` o `invalid`.
+
+            ### Paso 3 — Publicar comentario de diagnóstico
+            Publica UN ÚNICO comentario con exactamente esta estructura en español usando:
+            ```
+            gh issue comment ${{ github.event.issue.number }} --body "COMENTARIO"
+            ```
+
+            Estructura del comentario:
+            ```
+            ## 🤖 Análisis automático de Claude
+
+            ### 🔎 Resumen
+            [Reformulación breve y clara del problema o solicitud]
+
+            ### 🏷️ Clasificación
+            [Tipo de issue y justificación de la clasificación]
+
+            ### 🧩 Componentes afectados
+            [Archivos y funciones de game.js probablemente involucrados, o "N/A" si no aplica]
+
+            ### 🧠 Diagnóstico general
+            [Causa probable del bug o análisis del requerimiento en detalle]
+
+            ### 🛠️ Enfoque sugerido para la solución
+            [Pasos de alto nivel para implementar la solución o el cambio]
+
+            ### 🏷️ Labels asignados
+            [Lista de los labels que asignaste y por qué]
+
+            ---
+            *Análisis generado automáticamente. Puede contener imprecisiones.*
+            ```
+
+            ## Restricciones importantes
+            - NO modifiques el título ni el cuerpo del issue (usaría gh issue edit --title / --body),
+              ya que eso re-dispararía este workflow. Solo puedes añadir labels y comentar.
+            - Escribe todo el comentario en español.
+            - Si el issue es `duplicate` o `invalid`, igual publica el comentario explicando por qué.
