@@ -130,3 +130,8 @@ jobs:
               ya que eso re-dispararía este workflow. Solo puedes añadir labels y comentar.
             - Escribe todo el comentario en español.
             - Si el issue es `duplicate` o `invalid`, igual publica el comentario explicando por qué.
+            - El cuerpo del comentario DEBE estar escrito en GitHub Flavored Markdown (GFM) válido:
+              usa `##` para encabezados, `**texto**` para negrita, `-` para listas, y bloques de código
+              con triple backtick. Evita caracteres que rompan la sintaxis Markdown o el shell
+              (comillas simples sin escapar, signos `$` sueltos, etc.). El resultado debe renderizarse
+              correctamente en la interfaz web de GitHub sin mostrar caracteres de marcado en crudo.
